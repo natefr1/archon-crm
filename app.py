@@ -22,11 +22,18 @@ st.markdown("""
 try:
     USER_CREDENTIALS = dict(st.secrets["passwords"])
 except:
-    # Fallback for local testing if secrets aren't set up yet
+    # Fallback for local testing
     USER_CREDENTIALS = {"nathan": "admin123", "jason": "hunter1", "monica": "dispo1"}
 
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
+
+# THE MAGIC LINK BACKDOOR
+# If the URL contains your secret token, auto-login immediately
+if st.query_params.get("token") == "archon_master_key_99":
+    st.session_state["logged_in"] = True
+    st.session_state["user"] = "nathan"
+    st.query_params.clear() # Wipes the token from the address bar for security
 
 if not st.session_state["logged_in"]:
     col1, col2, col3 = st.columns([1, 1, 1])
