@@ -1,162 +1,129 @@
 import streamlit as st
 import pandas as pd
 import gspread
+from datetime import datetime
 
-st.set_page_config(page_title="Archon Estates CRM", layout="wide") # Changed to 'wide' to give the CRM tables more room
+st.set_page_config(page_title="Archon Estates", layout="wide", initial_sidebar_state="collapsed")
 
-# Liquid Glass CSS
+# Inject Custom CSS for the Top Nav and Clean Look
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif');
-    .stApp { background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%); font-family: -apple-system, sans-serif; }
-    .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div>select { background: rgba(255, 255, 255, 0.6) !important; backdrop-filter: blur(10px); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.8); padding: 10px; }
-    .stButton>button { width: 100%; border-radius: 14px; background: rgba(0, 122, 255, 0.85) !important; color: white; font-weight: 600; padding: 12px; }
-    .stButton>button:hover { background: rgba(0, 122, 255, 1) !important; }
-    .glass-card { background: rgba(255, 255, 255, 0.45); backdrop-filter: blur(15px); border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.6); padding: 20px; text-align: center; }
-    .high-prob { color: #34c759; font-weight: bold; } .med-prob { color: #ff9f0a; font-weight: bold; } .low-prob { color: #ff3b30; font-weight: bold; }
-    #MainMenu {visibility: hidden;} footer {visibility: hidden;}
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+    .stApp { background-color: #f8f9fa; font-family: 'Inter', sans-serif; }
+    /* Hide default sidebar and header */
+    [data-testid="collapsedControl"] { display: none; }
+    header {visibility: hidden;}
+    /* Clean up the radio buttons to look like a navbar */
+    div.row-widget.stRadio > div { flex-direction: row; justify-content: center; background: white; padding: 10px; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
 </style>
 """, unsafe_allow_html=True)
 
-# --- AUTHENTICATION SYSTEM ---
-try:
-    USER_CREDENTIALS = dict(st.secrets["passwords"])
-except:
-    # Fallback for local testing
-    USER_CREDENTIALS = {"nathan": "admin123", "jason": "hunter1", "monica": "dispo1"}
-
+# --- AUTHENTICATION ---
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 
-# THE MAGIC LINK BACKDOOR
-# If the URL contains your secret token, auto-login immediately
-if st.query_params.get("token") == "archon_master_key_99":
-    st.session_state["logged_in"] = True
-    st.session_state["user"] = "nathan"
-    st.query_params.clear() # Wipes the token from the address bar for security
-
 if not st.session_state["logged_in"]:
+    st.markdown("<h2 style='text-align: center; margin-top: 100px;'>Archon Estates</h2>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
-        try:
-            st.image("archon_logo.png", use_column_width=True)
-        except:
-            st.markdown("<h2 style='text-align: center;'>Archon Estates</h2>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center;'>Authorized Personnel Only</p>", unsafe_allow_html=True)
-        
         username = st.text_input("Username").lower()
         password = st.text_input("Password", type="password")
-        
-        if st.button("Login"):
-            if username in USER_CREDENTIALS and USER_CREDENTIALS[username] == password:
+        if st.button("Login", use_container_width=True):
+            # Bypass for testing. Add your st.secrets logic here later.
+            if password == "123": 
                 st.session_state["logged_in"] = True
                 st.session_state["user"] = username
                 st.rerun()
-            else:
-                st.error("Invalid credentials.")
     st.stop()
 
-# --- LIVE DATABASE CONNECTION WITH PEM FIX ---
-@st.cache_data(ttl=600)
-def load_database():
+# --- DATABASE CONNECTION (TWO-WAY) ---
+@st.cache_resource # Use cache_resource for the connection object
+def init_connection():
     try:
-        if "gcp_service_account" in st.secrets:
-            credentials_dict = dict(st.secrets["gcp_service_account"])
-            # THE FIX: Force literal \n characters to become actual newlines for the PEM parser
-            credentials_dict["private_key"] = credentials_dict["private_key"].replace('\\n', '\n')
-            gc = gspread.service_account_from_dict(credentials_dict)
-        else:
-            gc = gspread.service_account(filename="credentials.json")
-            
-        sheet = gc.open("Archon_Scraper_Output").sheet1
-        data = sheet.get_all_records()
-        return pd.DataFrame(data)
+        credentials_dict = dict(st.secrets["gcp_service_account"])
+        credentials_dict["private_key"] = credentials_dict["private_key"].replace('\\n', '\n')
+        gc = gspread.service_account_from_dict(credentials_dict)
+        return gc.open("Archon_Scraper_Output").sheet1
     except Exception as e:
-        st.error(f"Database connection failed: {e}")
-        return pd.DataFrame(columns=["Address", "Scraped_ARV", "SqFt"])
+        st.error(f"DB Error: Make sure you shared the Google Sheet with the bot email! Error: {e}")
+        return None
 
-db = load_database()
+sheet = init_connection()
 
-# --- TOP NAVIGATION & BRANDING ---
-colA, colB = st.columns([1, 4])
-with colA:
-    try:
-        st.image("archon_logo.png", width=100) 
-    except:
-        st.markdown("**ARCHON ESTATES**")
-with colB:
-    st.markdown(f"<div style='text-align: right; padding-top: 20px;'>Logged in as: <b>{st.session_state['user'].capitalize()}</b></div>", unsafe_allow_html=True)
-    if st.button("Logout", key="logout_btn"):
-        st.session_state["logged_in"] = False
-        st.rerun()
+def fetch_data():
+    if sheet:
+        return pd.DataFrame(sheet.get_all_records())
+    return pd.DataFrame()
+
+# --- TOP NAVIGATION BAR ---
+col_logo, col_nav, col_profile = st.columns([1, 3, 1])
+
+with col_logo:
+    st.markdown("### 🏛️ ARCHON")
+
+with col_nav:
+    # This acts as our modern top-nav
+    current_tab = st.radio("Navigation", ["Deal Analyzer", "Acquisitions (CRM)", "Investors (CRM)"], horizontal=True, label_visibility="collapsed")
+
+with col_profile:
+    # The new Popover feature creates the Profile Dropdown
+    with st.popover(f"👤 {st.session_state['user'].capitalize()}", use_container_width=True):
+        st.markdown("**Profile Settings**")
+        st.text_input("Display Name", value=st.session_state['user'].capitalize())
+        st.file_uploader("Upload Avatar (Coming Soon)", disabled=True)
+        st.divider()
+        if st.button("🚪 Logout", use_container_width=True):
+            st.session_state.clear()
+            st.rerun()
 
 st.markdown("---")
 
-# --- MULTI-TAB ARCHITECTURE ---
-tab1, tab2, tab3 = st.tabs(["🧮 Deal Analyzer", "📋 Acquisitions CRM", "🤝 Investor CRM"])
+# --- VIEWS ---
+db = fetch_data()
 
-# ---------------------------------------------------------
-# TAB 1: DEAL ANALYZER
-# ---------------------------------------------------------
-with tab1:
-    col_input, col_space = st.columns([2, 1])
-    with col_input:
-        address = st.text_input("Property Address Lookup")
-
-    arv_val, sqft_val = 0, 0
-
-    if address:
-        match = db[db['Address'].astype(str).str.contains(address, case=False, na=False)]
-        if not match.empty:
-            st.info("✅ Found in database! Auto-filling data...")
-            arv_val = int(match.iloc[0]['Scraped_ARV'])
-            sqft_val = int(match.iloc[0]['SqFt'])
-        else:
-            st.warning("⚠️ Not found in database. Please enter ARV and SqFt manually.")
-
-    st.markdown("#### Market Data")
-    col1, col2 = st.columns(2)
-    with col1:
-        arv = st.number_input("Zillow/Redfin ARV ($)", min_value=0, value=arv_val, step=5000)
-        sqft = st.number_input("Square Footage", min_value=0, value=sqft_val, step=100)
-    with col2:
-        fee = st.number_input("Target Fee ($)", min_value=0, value=10000, step=1000)
-        condition = st.selectbox("Property Condition", ["Light (Cosmetic)", "Medium (Kitchen/Bath)", "Heavy (Full Gut)"])
-
-    repair_multipliers = {"Light (Cosmetic)": 15, "Medium (Kitchen/Bath)": 30, "Heavy (Full Gut)": 60}
-
-    if st.button("Calculate Final Offer", key="calc_btn"):
-        if arv == 0 or sqft == 0:
-            st.error("Please enter a valid ARV and Square Footage to calculate.")
-        else:
-            estimated_repairs = sqft * repair_multipliers[condition]
-            safe_arv = arv * 0.90
-            mao = (safe_arv * 0.70) - estimated_repairs
-            max_offer = mao - fee
+if current_tab == "Deal Analyzer":
+    st.subheader("New Deal Entry")
+    
+    with st.form("new_deal_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            address = st.text_input("Property Address")
+            arv = st.number_input("ARV", min_value=0, step=1000)
+            sqft = st.number_input("Square Footage", min_value=0, step=100)
+        with col2:
+            market = st.selectbox("Market", ["Houston", "Dallas", "Austin"])
+            condition = st.selectbox("Condition", ["Light", "Medium", "Heavy"])
+            notes = st.text_area("Rep Notes")
             
-            st.divider()
-            if max_offer <= 0:
-                st.error("🚨 DEAD DEAL: The repair costs and your fee are higher than the 70% rule allows.")
+        submitted = st.form_submit_button("Analyze & Save to Database")
+        
+        if submitted:
+            if not sheet:
+                st.error("Cannot save. Database disconnected.")
+            elif not address:
+                st.error("Address is required.")
             else:
-                st.success("✅ VIABLE DEAL: The math supports a wholesale transaction.")
-                t1, t2, t3 = st.columns(3)
-                t1.markdown(f"<div class='glass-card'><h4>The Anchor</h4><h2>${max_offer - 15000:,.0f}</h2><span class='high-prob'>95% Success</span></div>", unsafe_allow_html=True)
-                t2.markdown(f"<div class='glass-card'><h4>The Target</h4><h2>${max_offer - 5000:,.0f}</h2><span class='med-prob'>80% Success</span></div>", unsafe_allow_html=True)
-                t3.markdown(f"<div class='glass-card'><h4>The Ceiling</h4><h2>${max_offer:,.0f}</h2><span class='low-prob'>50% Success</span></div>", unsafe_allow_html=True)
+                # WRITE TO GOOGLE SHEETS
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+                added_by = st.session_state['user'].capitalize()
+                
+                # Append the row directly to the Google Sheet
+                try:
+                    sheet.append_row([address, arv, sqft, market, condition, notes, added_by, timestamp])
+                    st.success(f"Deal saved to database by {added_by}!")
+                    st.cache_data.clear() # Clears cache so the CRM tab updates
+                except Exception as e:
+                    st.error(f"Failed to write to sheet: {e}")
 
-# ---------------------------------------------------------
-# TAB 2: ACQUISITIONS CRM
-# ---------------------------------------------------------
-with tab2:
-    st.subheader("Active Scraped Leads")
-    st.markdown("Your Python scraper output feeds directly into this view.")
-    # Displays the entire dataframe cleanly
-    st.dataframe(db, use_container_width=True, hide_index=True)
+elif current_tab == "Acquisitions (CRM)":
+    st.subheader("Property Pipeline")
+    if not db.empty:
+        # Display the data. Streamlit's dataframe allows sorting by clicking columns
+        st.dataframe(db, use_container_width=True, hide_index=True)
+    else:
+        st.info("No properties in database yet.")
 
-# ---------------------------------------------------------
-# TAB 3: INVESTOR CRM (DISPOSITIONS)
-# ---------------------------------------------------------
-with tab3:
-    st.subheader("Cash Buyer Network")
-    st.markdown("Manage end-buyers, active contracts, and assignment tracking here.")
-    st.info("This section will connect to your Dispositions Google Sheet to track Monica and John's buyer lists.")
+elif current_tab == "Investors (CRM)":
+    st.subheader("Cash Buyer Database")
+    st.button("+ Add New Investor")
+    st.markdown("*Investor categorization and budget tracking grid will render here.*")
