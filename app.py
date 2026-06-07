@@ -113,19 +113,20 @@ if not st.session_state["logged_in"]:
 def init_connection():
     try:
         credentials_dict = dict(st.secrets["gcp_service_account"])
-        credentials_dict["private_key"] = credentials_dict["private_key"].replace('\\n', '\n')
+        
+        # Bulletproof cleaning script for the RSA key structure
+        raw_key = credentials_dict["private_key"]
+        
+        # Normalize line endings and eliminate literal double-escaped strings
+        clean_key = raw_key.replace('\\n', '\n').replace('\r', '').strip()
+        
+        credentials_dict["private_key"] = clean_key
+        
         gc = gspread.service_account_from_dict(credentials_dict)
         return gc.open("Archon_Scraper_Output").sheet1
     except Exception as e:
-        st.error(f"Database Error: {e}")
+        st.error(f"Database Connection Failed: {e}")
         return None
-
-sheet = init_connection()
-
-def fetch_data():
-    if sheet:
-        return pd.DataFrame(sheet.get_all_records())
-    return pd.DataFrame()
 
 # --- EDGE-TO-EDGE TOP NAVIGATION ---
 # Using 4 columns to spread the nav bar across the entire screen width
