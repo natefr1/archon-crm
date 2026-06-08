@@ -17,18 +17,30 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- AUTH & DB ---
+# --- SECURE AUTH & DB (WITH LOCAL FALLBACK) ---
 try:
-    USER_CREDENTIALS = dict(st.secrets["passwords"])
-    credentials_dict = json.loads(st.secrets["google_json"])
-    credentials_dict["private_key"] = credentials_dict["private_key"].replace('\\n', '\n').replace('\r', '').strip()
-    gc = gspread.service_account_from_dict(credentials_dict)
-    # FIX: Change "Database" to match your actual file name
-    workbook = gc.open("Archon_Scraper_Output") 
+    # 1. Password Fallback
+    if "passwords" in st.secrets:
+        USER_CREDENTIALS = dict(st.secrets["passwords"])
+    else:
+        USER_CREDENTIALS = {"nathan": "admin123", "jason": "hunter1", "monica": "dispo1"}
+
+    # 2. Database Fallback (Cloud vs Local)
+    if "google_json" in st.secrets:
+        credentials_dict = json.loads(st.secrets["google_json"])
+        credentials_dict["private_key"] = credentials_dict["private_key"].replace('\\n', '\n').replace('\r', '').strip()
+        gc = gspread.service_account_from_dict(credentials_dict)
+    else:
+        # When testing locally, it looks for this file in your folder
+        gc = gspread.service_account(filename="credentials.json")
+        
+    # Connect to the exact file and tabs
+    workbook = gc.open("Database") 
     sheet_pipeline = workbook.worksheet("Pipeline")
     sheet_investors = workbook.worksheet("Investors")
+    
 except Exception as e:
-    st.error(f"Config Error (Check Tab Names & Secrets): {e}")
+    st.error(f"Config Error: {e}")
     st.stop()
 
 # --- NAV & UI ---
@@ -47,7 +59,6 @@ if selected_tab == "Deal Analyzer":
             arv = st.number_input("ARV ($)", step=5000)
             sqft = st.number_input("SqFt", step=100)
         with c2:
-            # FREE TEXT MARKET INPUT
             market = st.text_input("Market (City, State)", placeholder="e.g. Phoenix, AZ")
             condition = st.selectbox("Condition", ["Light", "Medium", "Heavy"])
             notes = st.text_area("Notes")
@@ -57,13 +68,12 @@ if selected_tab == "Deal Analyzer":
             st.success("Deal Added!")
 
 elif selected_tab == "Acquisitions (CRM)":
-    st.markdown("<h2>Pipeline Database</h2>")
+    st.markdown("<h2>Pipeline Database</h2>", unsafe_allow_html=True)
     df = pd.DataFrame(sheet_pipeline.get_all_records())
-    # This enables the interactive sorting you wanted!
     st.dataframe(df, use_container_width=True, hide_index=True)
 
 elif selected_tab == "Investors (CRM)":
-    st.markdown("<h2>Cash Buyer Network</h2>")
+    st.markdown("<h2>Cash Buyer Network</h2>", unsafe_allow_html=True)
     with st.form("new_investor"):
         c1, c2 = st.columns(2)
         with c1:
